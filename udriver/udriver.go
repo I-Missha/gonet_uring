@@ -80,7 +80,7 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 
 	u.buffer.Put(&entry)
 
-	if len(u.buffer.elements) >= int(u.batchSize) {
+	if len(u.buffer.elements) >= int(u.batchSize) { // redo this moment :D
 		u.batchSignal <- struct{}{}
 	}
 }
