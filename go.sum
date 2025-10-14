@@ -1,9 +1,7 @@
+github.com/I-Missha/go-uring v0.0.0-20251014063820-e0cdfd02c428 h1:GHa0mVXemhkNmJiFH0X/cGeeRr3SL2iTXUnVBoBB/iA=
+github.com/I-Missha/go-uring v0.0.0-20251014063820-e0cdfd02c428/go.mod h1:FJkZbXl0ctRtg07pwcCrG+IFOXC0U4g4mYiof6Z7bbw=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/godzie44/go-uring v0.0.0-20250501163612-d16a9e597639 h1:2CFLA2aAqoFw81reL7/ornK5UP437vyKrrqh88Txl2Q=
-github.com/godzie44/go-uring v0.0.0-20250501163612-d16a9e597639/go.mod h1:ermjEDUoT/fS+3Ona5Vd6t6mZkw1eHp99ILO5jGRBkM=
-github.com/jonoton/go-ringbuffer v1.6.0 h1:TsGZEfnwCLRwVZ9nEtnqhDPSgbk+TuoSI8WWMaa5fNQ=
-github.com/jonoton/go-ringbuffer v1.6.0/go.mod h1:FT9MtKbkAhqwoe8oT/fYND56TchFY3TnRDYS3LohIi0=
 github.com/libp2p/go-sockaddr v0.1.1 h1:yD80l2ZOdGksnOyHrhxDdTDFrf7Oy+v3FMVArIRgZxQ=
 github.com/libp2p/go-sockaddr v0.1.1/go.mod h1:syPvOmNs24S3dFVGJA1/mrqdeijPxLV2Le3BRLKd68k=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

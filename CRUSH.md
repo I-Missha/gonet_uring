@@ -66,9 +66,6 @@ go mod tidy
 
 на текущий момент net не реализован
 
-сейчас ведется разработка ubatcher, buffer
-потом будет реализован ubalancer
-
 ### Пакет ubatcher/
 **UBatcher** - основная обертка над io_uring:
 - `NewUBatcher()` - создание экземпляра
@@ -93,6 +90,7 @@ go mod tidy
 
 ### Зависимости
 - `github.com/godzie44/go-uring/uring` - обертка над системными вызовами io_uring
+- я сделал свой форк от `github.com/godzie44/go-uring`, сейчас используется он, находится в ~/dev/go-uring
 - Go 1.23.9
 
 ### Константы

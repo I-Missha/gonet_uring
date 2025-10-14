@@ -1,6 +1,8 @@
 package ubatcher
 
 import (
+	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,39 +31,31 @@ func TestUBatcher_Close(t *testing.T) {
 	}
 }
 
-func TestUBatcher_PushOperation(t *testing.T) {
-	batcher := NewUBatcher(16)
+func TestUBatcher_PushNopOperation(t *testing.T) {
+	const batchSize = 16
+	batcher := NewUBatcher(batchSize)
 	defer batcher.Close()
+	batcher.Run()
 
-	cb := func(result int32, err error) {
-		// Колбек для теста
+	var wg sync.WaitGroup
+	actualBufferSize := cap(batcher.buffer.elements)
+	for range actualBufferSize {
+		wg.Add(1)
+		go func() {
+			ch := make(chan int32)
+			cb := func(result int32, err error) {
+				ch <- result
+			}
+
+			op := uring.Nop()
+
+			batcher.PushOperaion(op, cb)
+			<-ch
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 
-	// Создаём фиктивную операцию
-	op := uring.Nop()
-
-	// Добавляем операцию
-	batcher.PushOperaion(op, cb)
-
-	// Проверяем что операция добавилась в буфер
-	if len(batcher.buffer.elements) != 1 {
-		t.Errorf("Expected buffer size 1, got %d", len(batcher.buffer.elements))
-	}
-}
-
-func TestUBatcher_PushOperation_BatchSignal(t *testing.T) {
-	batcher := NewUBatcher(16)
-	defer batcher.Close()
-
-	// Устанавливаем маленький размер батча для теста
-	batcher.batchSize = 2
-
-	cb := func(result int32, err error) {}
-	op := uring.Nop()
-
-	batcher.PushOperaion(op, cb)
-
-	batcher.PushOperaion(op, cb)
-
+	log.Printf("[TEST] pushed and succefully got signal, number of gorutines: %v\n", actualBufferSize)
 }
 

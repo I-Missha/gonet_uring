@@ -34,13 +34,25 @@ type UBatcher struct {
 }
 
 const (
-	DefaultBatchSize  = 16
-	DefaultBufferSize = DefaultBatchSize + 10 // inside of the buffer is mutex placed, so to avoid lock due to full batch we need some extra space
-	DefaultTimout     = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
+	DefaultBatchSize = 16
+	DefaultTimout    = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
+
+	BufferSizeMultiplier = 2
+	RingSizeMultiplier   = 4
 )
 
+/*
+the current logic of the program assumes the presence of a buffer larger than the batch, so as not to block the goroutines while waiting for free space in the batch, in addition,
+the very concept of the buffer assumes rings larger than the buffer itself, because the ring may overflow, which is a critical situation
+
+idk about this
+todo: think
+*/
 func NewUBatcher(size uint32) *UBatcher {
-	ring, err := uring.New(size)
+	ringSize := size * RingSizeMultiplier
+	bufferSize := size * BufferSizeMultiplier
+
+	ring, err := uring.New(ringSize)
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +63,7 @@ func NewUBatcher(size uint32) *UBatcher {
 		callbacks:   make(map[uint64]callback),
 		nextID:      rand.Uint64(),
 		callbackMut: sync.Mutex{},
-		buffer:      NewBuffer(DefaultBufferSize),
+		buffer:      NewBuffer(bufferSize),
 		batchSignal: make(chan struct{}, 1),
 		batchSize:   DefaultBatchSize,
 		cqDone:      make(chan struct{}),
@@ -92,13 +104,11 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 	u.buffer.Put(&entry)
 
 	if len(u.buffer.elements) >= int(u.batchSize) { // redo this moment :D
-		log.Printf("[UBatcher] батч можно отправлять (%d), отправляем сигнал", u.batchSize)
+		log.Printf("[UBatcher] батч можно отправлять (%d), отправляем сигнал", len(u.buffer.elements))
 		u.batchSignal <- struct{}{}
 	}
 }
 
-// CQEventsHandlerRun запускает обработчик событий завершения (CQE)
-// Должен выполняться в отдельной горутине
 func (u *UBatcher) CQEventsHandlerRun() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -124,7 +134,6 @@ func (u *UBatcher) CQEventsHandlerRun() {
 	}
 }
 
-// processCQE обрабатывает одно событие завершения
 func (u *UBatcher) processCQE(cqe *uring.CQEvent) {
 	u.callbackMut.Lock()
 	defer u.callbackMut.Unlock()
@@ -148,18 +157,15 @@ func (u *UBatcher) processCQE(cqe *uring.CQEvent) {
 	}
 }
 
-// Shutdown останавливает обработчик CQE
 func (u *UBatcher) Shutdown() {
 	atomic.StoreInt64(&u.shutdown, 1)
 }
 
-// Wait ожидает завершения обоих обработчиков
 func (u *UBatcher) Wait() {
 	<-u.cqDone
 	<-u.sqDone
 }
 
-// Close закрывает UBatcher и освобождает ресурсы
 func (u *UBatcher) Close() error {
 	u.Shutdown()
 	u.Wait()
@@ -177,7 +183,6 @@ func handleBatch(u *UBatcher) {
 		return
 	}
 
-	log.Printf("[UBatcher] Обработка батча из %d операций", len(events))
 	for _, e := range events {
 		u.addToUring(e.operation, e.cb)
 	}

@@ -8,3 +8,5 @@ require (
 	github.com/libp2p/go-sockaddr v0.1.1 // indirect
 	golang.org/x/sys v0.0.0-20210921065528-437939a70204 // indirect
 )
+
+replace github.com/godzie44/go-uring => github.com/I-Missha/go-uring v0.0.0-20251014063820-e0cdfd02c428
