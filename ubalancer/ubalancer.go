@@ -107,7 +107,7 @@ func (ub *UBalancer) Shutdown() {
 	}
 
 	log.Printf("[UBalancer] Инициирована остановка")
-	
+
 	for i, batcher := range ub.batchers {
 		log.Printf("[UBalancer] Остановка батчера %d", i)
 		batcher.Shutdown()
@@ -117,22 +117,22 @@ func (ub *UBalancer) Shutdown() {
 // monitor отслеживает завершение всех батчеров и сигнализирует о завершении балансера
 func (ub *UBalancer) monitor() {
 	log.Printf("[UBalancer] Запущен монитор завершения")
-	
+
 	// Ждем завершения всех батчеров
 	for i, batcher := range ub.batchers {
 		log.Printf("[UBalancer] Ожидание завершения батчера %d", i)
 		batcher.Wait()
 		log.Printf("[UBalancer] Батчер %d завершен", i)
 	}
-	
+
 	log.Printf("[UBalancer] Все батчеры завершили работу")
-	
+
 	// Устанавливаем флаг завершения
 	atomic.StoreInt64(&ub.finished, 1)
-	
+
 	// Сигнализируем о завершении
 	close(ub.done)
-	
+
 	log.Printf("[UBalancer] Балансировщик завершен")
 }
 
