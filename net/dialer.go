@@ -1,6 +1,7 @@
 package net
 
 import (
+	"sync/atomic"
 	"context"
 	"errors"
 	"fmt"
@@ -19,17 +20,25 @@ var (
 
 type UringDialer struct {
 	balancer *ubalancer.UBalancer
+	success  int64
+	all      int64
 }
 
+var balancer *ubalancer.UBalancer
+
 func NewUringDialer() *UringDialer {
-	balancer := ubalancer.NewUBalancer(4, 16)
-	balancer.Run()
+	if balancer == nil {
+		balancer = ubalancer.NewUBalancer(16, 32)
+		balancer.Run()
+	}
+
 	return &UringDialer{
 		balancer: balancer,
 	}
 }
 
 func (d *UringDialer) DialContext(ctx context.Context, network, address string) (gonet.Conn, error) {
+	atomic.AddInt64(&d.all, 1)
 	addr, err := gonet.ResolveTCPAddr(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve address: %w", err)
@@ -54,7 +63,6 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 	if fd < 0 {
 		return nil, fmt.Errorf("failed to create socket")
 	}
-	fmt.Printf("socket fd: %d\n", fd)
 
 	resultChan := make(chan error, 1)
 
@@ -81,7 +89,7 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 			syscall.Close(fd)
 			return nil, fmt.Errorf("connect failed: %w", err)
 		}
-
+		atomic.AddInt64(&d.success, 1)
 		return &Conn{fd: fd, mu: sync.Mutex{}, balancer: d.balancer}, nil
 	case <-ctx.Done():
 		syscall.Close(fd)
@@ -89,3 +97,6 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 	}
 }
 
+func (d *UringDialer) GetSuccessCount() int {
+	return int(d.success)
+}

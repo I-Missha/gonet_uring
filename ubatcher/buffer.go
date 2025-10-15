@@ -34,6 +34,12 @@ func (b *Buffer) GetAll() []*Entry {
 	return toRet
 }
 
+func (b *Buffer) Size() int {
+	b.mut.Lock()
+	defer b.mut.Unlock()
+	return len(b.elements)
+}
+
 
 
 

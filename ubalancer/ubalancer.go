@@ -138,7 +138,6 @@ func (ub *UBalancer) monitor() {
 
 // Wait ожидает автоматического завершения балансера
 func (ub *UBalancer) Wait() {
-	log.Printf("[UBalancer] Ожидание завершения балансера")
 	<-ub.done
 }
 
@@ -147,7 +146,6 @@ func (ub *UBalancer) Close() error {
 	ub.Shutdown()
 	ub.Wait()
 
-	log.Printf("[UBalancer] Закрытие всех батчеров")
 	var lastErr error
 	for i, batcher := range ub.batchers {
 		if err := batcher.Close(); err != nil {

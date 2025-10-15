@@ -37,8 +37,8 @@ const (
 	DefaultBatchSize = 16
 	DefaultTimout    = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
 
-	BufferSizeMultiplier = 2
-	RingSizeMultiplier   = 4
+	BufferSizeMultiplier = 4
+	RingSizeMultiplier   = 64
 )
 
 /*
@@ -79,7 +79,7 @@ func (u *UBatcher) addToUring(operation uring.Operation, cb callback) {
 	u.nextID++
 	// shitty code :)
 	var err error
-	for range 4 {
+	for range 10 {
 		u.callbacks[userData] = cb
 		err = u.ring.QueueSQE(operation, 0, userData) // note: NextSQE is used inside of QueueSQE, NextSQE returns only one error = ErrSQOverflow
 
@@ -103,58 +103,71 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 
 	u.buffer.Put(&entry)
 
-	if len(u.buffer.elements) >= int(u.batchSize) { // redo this moment :D
-		log.Printf("[UBatcher] батч можно отправлять (%d), отправляем сигнал", len(u.buffer.elements))
-		u.batchSignal <- struct{}{}
+	// Безопасная проверка размера буфера
+	if u.buffer.Size() >= int(u.batchSize) {
+		select {
+		case u.batchSignal <- struct{}{}:
+		default: // Не блокируем если канал уже заполнен
+		}
 	}
 }
+
+const CQEventsToWait = 5
 
 func (u *UBatcher) CQEventsHandlerRun() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(u.cqDone)
+	count := 0
+	all := 0
 
-	log.Printf("[UBatcher] Запущен обработчик CQE событий")
 	for {
 		// Проверяем сигнал остановки
 		if atomic.LoadInt64(&u.shutdown) == 1 {
-			log.Printf("[UBatcher] Получен сигнал остановки, завершаем обработчик CQE")
 			return
 		}
 
 		// Ожидаем завершения операций с тайм-аутом
-		cqe, err := u.ring.WaitCQEventsWithTimeout(1, 500*time.Millisecond)
+		_, err := u.ring.WaitCQEventsWithTimeout(16, 500*time.Millisecond)
 		if err != nil {
 			continue
 		}
+		all++
 
-		u.processCQE(cqe)
+		u.processCQE()
+		count++
 		// Отмечаем событие как обработанное
-		u.ring.SeenCQE(cqe)
 	}
 }
 
-func (u *UBatcher) processCQE(cqe *uring.CQEvent) {
+func (u *UBatcher) processCQE() {
 	u.callbackMut.Lock()
 	defer u.callbackMut.Unlock()
 
-	result := cqe.Res
-	err := cqe.Error()
+	buf := make([]*uring.CQEvent, CQEventsToWait)
+	cqes := u.ring.PeekCQEventBatch(buf)
 
-	if cb, exists := u.callbacks[cqe.UserData]; exists {
-		log.Printf("[UBatcher] Обработка CQE: userData=%d, result=%d, err=%v", cqe.UserData, result, err)
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("[UBatcher] Паника в колбеке userData=%d: %v", cqe.UserData, r)
-				}
+	for i := 0; i < cqes; i++ {
+		cqe := buf[i]
+		result := cqe.Res
+		err := cqe.Error()
+
+		if cb, exists := u.callbacks[cqe.UserData]; exists {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[UBatcher] Паника в колбеке userData=%d: %v", cqe.UserData, r)
+					}
+				}()
+				cb(result, err)
 			}()
-			cb(result, err)
-		}()
-		delete(u.callbacks, cqe.UserData)
-	} else {
-		log.Printf("[UBatcher] Колбек не найден для userData=%d", cqe.UserData)
+			delete(u.callbacks, cqe.UserData)
+		} else {
+			log.Printf("[UBatcher] Колбек не найден для userData=%d", cqe.UserData)
+		}
+
 	}
+	u.ring.AdvanceCQ(uint32(cqes))
 }
 
 func (u *UBatcher) Shutdown() {
@@ -187,8 +200,11 @@ func handleBatch(u *UBatcher) {
 		u.addToUring(e.operation, e.cb)
 	}
 
-	submitted, err := u.ring.Submit()
-	log.Printf("[UBatcher] Отправлено %d операций в uring, err=%v", submitted, err)
+	_, err := u.ring.Submit()
+	if err != nil {
+		log.Printf("[UBatcher] Ошибка отправки батча: %v", err)
+	}
+
 }
 
 func (u *UBatcher) SQEventsHandlerRun() {
@@ -209,7 +225,6 @@ func (u *UBatcher) SQEventsHandlerRun() {
 
 		select {
 		case <-u.batchSignal:
-			log.Printf("[UBatcher] Получен сигнал обработки батча")
 			handleBatch(u)
 			timer.Reset(DefaultTimout)
 
