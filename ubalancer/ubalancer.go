@@ -2,7 +2,6 @@ package ubalancer
 
 import (
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
 
@@ -48,7 +47,6 @@ func NewUBalancer(numBatchers int, batchSize uint32) *UBalancer {
 		batchers[i] = ubatcher.NewUBatcher(batchSize)
 	}
 
-	log.Printf("[UBalancer] Создан балансировщик с %d батчерами", numBatchers)
 	return &UBalancer{
 		batchers:    batchers,
 		numBatchers: numBatchers,
@@ -82,13 +80,10 @@ func (ub *UBalancer) PushOperation(operation uring.Operation, cb func(result int
 func (ub *UBalancer) Run() {
 	// Атомарно устанавливаем флаг запуска
 	if !atomic.CompareAndSwapInt64(&ub.running, 0, 1) {
-		log.Printf("[UBalancer] Балансировщик уже запущен")
 		return
 	}
 
-	log.Printf("[UBalancer] Запуск всех батчеров")
-	for i, batcher := range ub.batchers {
-		log.Printf("[UBalancer] Запуск батчера %d", i)
+	for _, batcher := range ub.batchers {
 		batcher.Run()
 	}
 
@@ -102,30 +97,23 @@ func (ub *UBalancer) Run() {
 func (ub *UBalancer) Shutdown() {
 	// Атомарно устанавливаем флаг остановки
 	if !atomic.CompareAndSwapInt64(&ub.shutdown, 0, 1) {
-		log.Printf("[UBalancer] Остановка уже инициирована")
 		return
 	}
 
-	log.Printf("[UBalancer] Инициирована остановка")
 
-	for i, batcher := range ub.batchers {
-		log.Printf("[UBalancer] Остановка батчера %d", i)
+	for _, batcher := range ub.batchers {
 		batcher.Shutdown()
 	}
 }
 
 // monitor отслеживает завершение всех батчеров и сигнализирует о завершении балансера
 func (ub *UBalancer) monitor() {
-	log.Printf("[UBalancer] Запущен монитор завершения")
 
 	// Ждем завершения всех батчеров
-	for i, batcher := range ub.batchers {
-		log.Printf("[UBalancer] Ожидание завершения батчера %d", i)
+	for _, batcher := range ub.batchers {
 		batcher.Wait()
-		log.Printf("[UBalancer] Батчер %d завершен", i)
 	}
 
-	log.Printf("[UBalancer] Все батчеры завершили работу")
 
 	// Устанавливаем флаг завершения
 	atomic.StoreInt64(&ub.finished, 1)
@@ -133,7 +121,6 @@ func (ub *UBalancer) monitor() {
 	// Сигнализируем о завершении
 	close(ub.done)
 
-	log.Printf("[UBalancer] Балансировщик завершен")
 }
 
 // Wait ожидает автоматического завершения балансера
@@ -147,9 +134,8 @@ func (ub *UBalancer) Close() error {
 	ub.Wait()
 
 	var lastErr error
-	for i, batcher := range ub.batchers {
+	for _, batcher := range ub.batchers {
 		if err := batcher.Close(); err != nil {
-			log.Printf("[UBalancer] Ошибка при закрытии батчера %d: %v", i, err)
 			lastErr = err
 		}
 	}

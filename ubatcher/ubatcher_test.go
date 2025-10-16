@@ -1,7 +1,6 @@
 package ubatcher
 
 import (
-	"log"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +55,4 @@ func TestUBatcher_PushNopOperation(t *testing.T) {
 	}
 	wg.Wait()
 
-	log.Printf("[TEST] pushed and succefully got signal, number of gorutines: %v\n", actualBufferSize)
 }
-

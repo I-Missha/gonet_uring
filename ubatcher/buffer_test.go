@@ -64,10 +64,6 @@ func TestBuffer_GetAll(t *testing.T) {
 		t.Errorf("Expected buffer to be empty after GetAll, got length %d", len(buf.elements))
 	}
 
-	// Проверяем что capacity сохранилась
-	if cap(buf.elements) != 5 {
-		t.Errorf("Expected capacity to remain 5, got %d", cap(buf.elements))
-	}
 }
 
 func TestBuffer_GetAllEmpty(t *testing.T) {

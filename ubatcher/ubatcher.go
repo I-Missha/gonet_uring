@@ -1,7 +1,6 @@
 package ubatcher
 
 import (
-	"log"
 	"math/rand/v2"
 	"runtime"
 	"sync"
@@ -35,10 +34,10 @@ type UBatcher struct {
 
 const (
 	DefaultBatchSize = 16
-	DefaultTimout    = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
+	DefaultTimout    = 100 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
 
-	BufferSizeMultiplier = 4
-	RingSizeMultiplier   = 64
+	BufferSizeMultiplier = 64
+	RingSizeMultiplier   = 256
 )
 
 /*
@@ -53,11 +52,17 @@ func NewUBatcher(size uint32) *UBatcher {
 	bufferSize := size * BufferSizeMultiplier
 
 	ring, err := uring.New(ringSize)
+
 	if err != nil {
 		panic(err)
 	}
 
-	log.Printf("[UBatcher] Создан новый UBatcher с размером ring=%d, batchSize=%d", size, DefaultBatchSize)
+	if ok := ring.Params.FastPollFeature(); !ok {
+		panic("uring.Params.FastPollFeature() returned false")
+	}
+
+	Init()
+
 	return &UBatcher{
 		ring:        ring,
 		callbacks:   make(map[uint64]callback),
@@ -96,12 +101,11 @@ func (u *UBatcher) addToUring(operation uring.Operation, cb callback) {
 }
 
 func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
-	entry := Entry{
-		operation: operation,
-		cb:        cb,
-	}
+	entry := acquireEntry()
+	entry.operation = operation
+	entry.cb = cb
 
-	u.buffer.Put(&entry)
+	u.buffer.Put(entry)
 
 	// Безопасная проверка размера буфера
 	if u.buffer.Size() >= int(u.batchSize) {
@@ -112,11 +116,12 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 	}
 }
 
-const CQEventsToWait = 5
+const CQEventsToWait = 10
 
 func (u *UBatcher) CQEventsHandlerRun() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
 	defer close(u.cqDone)
 	count := 0
 	all := 0
@@ -128,7 +133,7 @@ func (u *UBatcher) CQEventsHandlerRun() {
 		}
 
 		// Ожидаем завершения операций с тайм-аутом
-		_, err := u.ring.WaitCQEventsWithTimeout(16, 500*time.Millisecond)
+		_, err := u.ring.WaitCQEventsWithTimeout(CQEventsToWait, 100*time.Millisecond)
 		if err != nil {
 			continue
 		}
@@ -144,7 +149,9 @@ func (u *UBatcher) processCQE() {
 	u.callbackMut.Lock()
 	defer u.callbackMut.Unlock()
 
-	buf := make([]*uring.CQEvent, CQEventsToWait)
+	buf := acquireCQEBuffer()
+	defer releaseCQEBuffer(buf)
+
 	cqes := u.ring.PeekCQEventBatch(buf)
 
 	for i := 0; i < cqes; i++ {
@@ -156,14 +163,12 @@ func (u *UBatcher) processCQE() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[UBatcher] Паника в колбеке userData=%d: %v", cqe.UserData, r)
 					}
 				}()
 				cb(result, err)
 			}()
 			delete(u.callbacks, cqe.UserData)
 		} else {
-			log.Printf("[UBatcher] Колбек не найден для userData=%d", cqe.UserData)
 		}
 
 	}
@@ -185,26 +190,23 @@ func (u *UBatcher) Close() error {
 	return u.ring.Close()
 }
 
-type Entry struct {
-	operation uring.Operation
-	cb        callback
-}
+
 
 func handleBatch(u *UBatcher) {
 	events := u.buffer.GetAll()
 	if len(events) == 0 {
 		return
 	}
+	defer releaseSlice(events)
 
 	for _, e := range events {
 		u.addToUring(e.operation, e.cb)
+		releaseEntry(e)
 	}
 
 	_, err := u.ring.Submit()
 	if err != nil {
-		log.Printf("[UBatcher] Ошибка отправки батча: %v", err)
 	}
-
 }
 
 func (u *UBatcher) SQEventsHandlerRun() {
@@ -212,14 +214,12 @@ func (u *UBatcher) SQEventsHandlerRun() {
 	defer runtime.UnlockOSThread()
 	defer close(u.sqDone)
 
-	log.Printf("[UBatcher] Запущен основной цикл батчинга с таймаутом %v", DefaultTimout)
 	timer := time.NewTimer(DefaultTimout)
 	defer timer.Stop()
 
 	for {
 		// Проверяем сигнал остановки
 		if atomic.LoadInt64(&u.shutdown) == 1 {
-			log.Printf("[UBatcher] Получен сигнал остановки, завершаем SQ handler")
 			return
 		}
 
