@@ -1,13 +1,15 @@
 package net
 
 import (
-	"sync/atomic"
 	"context"
 	"errors"
 	"fmt"
 	gonet "net"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"unsafe"
 
 	"github.com/I-Missha/gonet_uring/ubalancer"
 	"github.com/godzie44/go-uring/uring"
@@ -21,14 +23,13 @@ var (
 type UringDialer struct {
 	balancer *ubalancer.UBalancer
 	success  int64
-	all      int64
 }
 
 var balancer *ubalancer.UBalancer
 
 func NewUringDialer() *UringDialer {
 	if balancer == nil {
-		balancer = ubalancer.NewUBalancer(14, 128)
+		balancer = ubalancer.NewUBalancer(8, 64)
 		balancer.Run()
 	}
 
@@ -38,45 +39,41 @@ func NewUringDialer() *UringDialer {
 }
 
 func (d *UringDialer) DialContext(ctx context.Context, network, address string) (gonet.Conn, error) {
-	atomic.AddInt64(&d.all, 1)
 	addr, err := gonet.ResolveTCPAddr(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve address: %w", err)
 	}
 
-	socketChan := make(chan int, 1)
-	socketOp := uring.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	socketOp := uring.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
 
-	err = d.balancer.PushOperation(socketOp, func(result int32, err error) {
-		if err != nil || result < 0 {
-			socketChan <- -1
-		} else {
-			socketChan <- int(result)
-		}
-	})
+	ch := make(chan int32)
+	callb := func(result int32, err error) {
+		ch <- result
+	}
+	cb := uint64(uintptr(unsafe.Pointer(&callb)))
+
+	err = d.balancer.PushOperation(socketOp, cb)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to push socket operation: %w", err)
 	}
+	fd := int(<-ch)
 
-	fd := <-socketChan
 	if fd < 0 {
 		return nil, fmt.Errorf("failed to create socket")
 	}
+	runtime.KeepAlive(callb)
 
-	resultChan := make(chan error, 1)
 
 	connectOp := uring.Connect(uintptr(fd), addr)
 
-	err = d.balancer.PushOperation(connectOp, func(result int32, err error) {
-		if err != nil {
-			resultChan <- err
-		} else if result < 0 {
-			resultChan <- syscall.Errno(-result)
-		} else {
-			resultChan <- nil
-		}
-	})
+	callb = func(result int32, err error) {
+		ch <- result
+	}
+
+	cb = uint64(uintptr(unsafe.Pointer(&callb)))
+
+	err = d.balancer.PushOperation(connectOp, cb)
 
 	if err != nil {
 		syscall.Close(fd)
@@ -84,15 +81,13 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 	}
 
 	select {
-	case err := <-resultChan:
-		if err != nil {
-			syscall.Close(fd)
-			return nil, fmt.Errorf("connect failed: %w", err)
-		}
+	case <-ch:
+		runtime.KeepAlive(callb)
 		atomic.AddInt64(&d.success, 1)
 		return &Conn{fd: fd, mu: sync.Mutex{}, balancer: d.balancer}, nil
 	case <-ctx.Done():
 		syscall.Close(fd)
+		runtime.KeepAlive(callb)
 		return nil, ErrCanceled
 	}
 }

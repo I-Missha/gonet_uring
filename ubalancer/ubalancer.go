@@ -57,7 +57,7 @@ func NewUBalancer(numBatchers int, batchSize uint32) *UBalancer {
 
 // PushOperation распределяет операцию между батчерами по round-robin.
 // Thread-safe для использования из любых горутин.
-func (ub *UBalancer) PushOperation(operation uring.Operation, cb func(result int32, err error)) error {
+func (ub *UBalancer) PushOperation(operation uring.Operation, cb uint64) error {
 	// Проверяем состояние балансировщика
 	if atomic.LoadInt64(&ub.finished) == 1 {
 		return ErrShutdown

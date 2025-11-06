@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/godzie44/go-uring/uring"
 )
@@ -35,13 +36,14 @@ func TestNewUBalancerDefaults(t *testing.T) {
 }
 
 func TestPushOperationDistribution(t *testing.T) {
+	t.Log("Тест распределения операций по батчерам")
 	balancer := NewUBalancer(3, 4)
 
 	balancer.Run()
 	time.Sleep(200 * time.Millisecond) // даем больше времени на запуск
 
 	var completed int64
-	cb := func(result int32, err error) {
+	callback := func(result int32, err error) {
 		atomic.AddInt64(&completed, 1)
 	}
 
@@ -50,6 +52,8 @@ func TestPushOperationDistribution(t *testing.T) {
 
 	// Отправляем несколько операций
 	for i := range 9 {
+		cb := uint64(uintptr(unsafe.Pointer(&callback)))
+
 		err := balancer.PushOperation(op, cb)
 		if err != nil {
 			t.Errorf("Ошибка при отправке операции %d: %v", i, err)
@@ -57,12 +61,20 @@ func TestPushOperationDistribution(t *testing.T) {
 	}
 
 	// Проверяем, что counter увеличивается (round-robin работает)
-	if balancer.counter < 9 {
-		t.Errorf("Ожидалось минимум 9 операций, получено %d", balancer.counter)
+	ticker := time.NewTicker(10000 * time.Millisecond)
+	for atomic.LoadInt64(&completed) < 9 {
+		select {
+		case <-ticker.C:
+			t.Errorf("Ожидалось минимум 9 операций, получено %d", completed)
+		default:
+			// продолжаем проверку
+		}
 	}
 
+	t.Log("Операции отправлены\n")
+
 	time.Sleep(200 * time.Millisecond)
-	
+
 	balancer.Close()
 }
 
@@ -100,7 +112,7 @@ func TestConcurrentPushOperation(t *testing.T) {
 	time.Sleep(200 * time.Millisecond) // даем больше времени на запуск
 
 	var completed int64
-	cb := func(result int32, err error) {
+	callback := func(result int32, err error) {
 		atomic.AddInt64(&completed, 1)
 	}
 
@@ -109,13 +121,15 @@ func TestConcurrentPushOperation(t *testing.T) {
 	operationsPerGoroutine := 20
 
 	var wg sync.WaitGroup
-	
+
 	// Запускаем несколько горутин для параллельной отправки операций
 	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range operationsPerGoroutine {
+				cb := uint64(uintptr(unsafe.Pointer(&callback)))
+
 				err := balancer.PushOperation(op, cb)
 				if err != nil {
 					t.Errorf("Горутина %d, операция %d: %v", goroutineID, j, err)
@@ -142,9 +156,9 @@ func TestPushOperationErrors(t *testing.T) {
 
 	// Тест без запуска
 	op := uring.Nop()
-	cb := func(result int32, err error) {}
-	
-	err := balancer.PushOperation(op, cb)
+	callback := func(result int32, err error) {}
+
+	err := balancer.PushOperation(op, uint64(uintptr(unsafe.Pointer(&callback))))
 	if err != ErrNotRunning {
 		t.Errorf("Ожидалась ошибка ErrNotRunning, получено: %v", err)
 	}
@@ -156,9 +170,9 @@ func TestPushOperationErrors(t *testing.T) {
 
 	// Ждем завершения балансера
 	balancer.Wait()
-	
+
 	// Тест после завершения
-	err = balancer.PushOperation(op, cb)
+	err = balancer.PushOperation(op, uint64(uintptr(unsafe.Pointer(&callback))))
 	if err != ErrShutdown {
 		t.Errorf("Ожидалась ошибка ErrShutdown, получено: %v", err)
 	}
@@ -168,11 +182,11 @@ func TestPushOperationErrors(t *testing.T) {
 
 func TestAutoFinish(t *testing.T) {
 	balancer := NewUBalancer(2, 4)
-	
+
 	// Запускаем балансер
 	balancer.Run()
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Проверяем что канал Done() не закрыт
 	select {
 	case <-balancer.Done():
@@ -180,10 +194,10 @@ func TestAutoFinish(t *testing.T) {
 	default:
 		// ожидаемое поведение
 	}
-	
+
 	// Останавливаем батчеры - балансер должен завершиться автоматически
 	balancer.Shutdown()
-	
+
 	// Ждем сигнала завершения через канал
 	select {
 	case <-balancer.Done():
@@ -191,9 +205,10 @@ func TestAutoFinish(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Error("Балансер не завершился автоматически в течение 1 секунды")
 	}
-	
+
 	// Проверяем флаг завершения
 	if !balancer.IsFinished() {
 		t.Error("IsFinished() должен возвращать true после автоматического завершения")
 	}
 }
+
