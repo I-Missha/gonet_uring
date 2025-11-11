@@ -35,9 +35,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func BenchmarkClientGetEndToEnd900TCP(b *testing.B) {
+func BenchmarkClientGetEndToEnd1000TCP(b *testing.B) {
 	b.Run("io_uring", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 900, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
 			dialer := mynet.NewUringDialer()
 			return dialer.DialContext(context.TODO(), "tcp", addr)
 		})
@@ -46,7 +46,7 @@ func BenchmarkClientGetEndToEnd900TCP(b *testing.B) {
 	time.Sleep(time.Second * 4)
 
 	b.Run("net", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 900, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
 			return net.Dial("tcp6", addr)
 		})
 	})
