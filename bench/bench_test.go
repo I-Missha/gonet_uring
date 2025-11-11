@@ -43,7 +43,7 @@ func BenchmarkClientGetEndToEnd1000TCP(b *testing.B) {
 		})
 	})
 
-	time.Sleep(time.Second * 4)
+	time.Sleep(time.Second * 20)
 
 	b.Run("net", func(b *testing.B) {
 		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
