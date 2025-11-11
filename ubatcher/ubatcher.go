@@ -20,7 +20,7 @@ type UBatcher struct {
 }
 
 const (
-	RingSizeMultiplier = 1
+	RingSizeMultiplier = 10
 )
 
 func NewUBatcher(size uint32) *UBatcher {
@@ -67,6 +67,7 @@ func (u *UBatcher) addToUring(operation uring.Operation, cb uint64) {
 	}
 
 	// Submit the operation to the kernel
+
 	_, err = u.ring.Submit()
 	if err != nil {
 		panic(err)

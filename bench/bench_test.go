@@ -35,9 +35,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func BenchmarkClientGetEndToEnd400TCP(b *testing.B) {
+func BenchmarkClientGetEndToEnd900TCP(b *testing.B) {
 	b.Run("io_uring", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 400, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 900, func(addr string) (net.Conn, error) {
 			dialer := mynet.NewUringDialer()
 			return dialer.DialContext(context.TODO(), "tcp", addr)
 		})
@@ -46,14 +46,14 @@ func BenchmarkClientGetEndToEnd400TCP(b *testing.B) {
 	time.Sleep(time.Second * 4)
 
 	b.Run("net", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 400, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 900, func(addr string) (net.Conn, error) {
 			return net.Dial("tcp6", addr)
 		})
 	})
 }
 
 func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dial fasthttp.DialFunc) {
-	addr := "obryvko-m-vm-84423541.vla.yp-c.yandex.net:8543" // TODO: set addr to config.yaml
+	addr := "[2a02:6b8:c02:901:0:fc7e:0:36c]:8543" // TODO: set addr to config.yaml
 
 	// Клиенту теперь не нужен большой пул соединений, но оставим его,
 	c := &fasthttp.Client{
@@ -63,7 +63,7 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 		Dial:            dial,
 	}
 
-	requestURI := "/foo/bar?baz=123"
+	requestURI := "/hello"
 	url := "http://" + addr + requestURI
 	b.SetParallelism(parallelism)
 

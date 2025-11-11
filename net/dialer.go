@@ -29,7 +29,7 @@ var balancer *ubalancer.UBalancer
 
 func NewUringDialer() *UringDialer {
 	if balancer == nil {
-		balancer = ubalancer.NewUBalancer(8, 64)
+		balancer = ubalancer.NewUBalancer(8, 256)
 		balancer.Run()
 	}
 
