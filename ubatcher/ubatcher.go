@@ -188,8 +188,6 @@ func handleBatch(u *UBatcher) {
 }
 
 func (u *UBatcher) SQEventsHandlerRun() {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	defer close(u.sqDone)
 
 	timer := time.NewTimer(DefaultTimout)

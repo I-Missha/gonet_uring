@@ -20,44 +20,56 @@ type Conn struct {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
 	readOp := uring.Read(uintptr(c.fd), b, 0)
-	bytesNum := make(chan int32)
+	resultChan := make(chan struct {
+		bytes int32
+		err   error
+	}, 1)
+	
 	err = c.balancer.PushOperation(readOp, func(result int32, err error) {
-		if err != nil {
-			return
-		}
-		bytesNum <- result
-
+		resultChan <- struct {
+			bytes int32
+			err   error
+		}{result, err}
 	})
 
 	if err != nil {
 		return 0, err
 	}
 
-	bytes := <-bytesNum
-	c.rCount += int(bytes)
-
-	return int(bytes), nil
+	result := <-resultChan
+	if result.err != nil {
+		return 0, result.err
+	}
+	
+	c.rCount += int(result.bytes)
+	return int(result.bytes), nil
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
 	writeOp := uring.Write(uintptr(c.fd), b, 0)
-	bytesNum := make(chan int32)
+	resultChan := make(chan struct {
+		bytes int32
+		err   error
+	}, 1)
+	
 	err = c.balancer.PushOperation(writeOp, func(result int32, err error) {
-		if err != nil {
-			return
-		}
-		bytesNum <- result
-
+		resultChan <- struct {
+			bytes int32
+			err   error
+		}{result, err}
 	})
 
 	if err != nil {
 		return 0, err
 	}
 
-	bytes := <-bytesNum
-	c.wCount += int(bytes)
-
-	return int(bytes), nil
+	result := <-resultChan
+	if result.err != nil {
+		return 0, result.err
+	}
+	
+	c.wCount += int(result.bytes)
+	return int(result.bytes), nil
 }
 
 func (c *Conn) Close() error {
