@@ -21,9 +21,14 @@ type UringDialer struct {
 	balancer *ubalancer.UBalancer
 }
 
+var balancer *ubalancer.UBalancer
+
 func NewUringDialer() *UringDialer {
-	balancer := ubalancer.NewUBalancer(4, 16)
-	balancer.Run()
+	if balancer == nil {
+		balancer = ubalancer.NewUBalancer(8, 256)
+		balancer.Run()
+	}
+
 	return &UringDialer{
 		balancer: balancer,
 	}
@@ -36,7 +41,7 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 	}
 
 	socketChan := make(chan int, 1)
-	socketOp := uring.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	socketOp := uring.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, 0)
 
 	err = d.balancer.PushOperation(socketOp, func(result int32, err error) {
 		if err != nil || result < 0 {
@@ -54,7 +59,6 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 	if fd < 0 {
 		return nil, fmt.Errorf("failed to create socket")
 	}
-	fmt.Printf("socket fd: %d\n", fd)
 
 	resultChan := make(chan error, 1)
 

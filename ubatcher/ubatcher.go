@@ -38,7 +38,7 @@ const (
 	DefaultTimout    = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
 
 	BufferSizeMultiplier = 2
-	RingSizeMultiplier   = 4
+	RingSizeMultiplier   = 10
 )
 
 /*
@@ -50,14 +50,13 @@ todo: think
 */
 func NewUBatcher(size uint32) *UBatcher {
 	ringSize := size * RingSizeMultiplier
-	bufferSize := size * BufferSizeMultiplier
+	bufferSize := uint32(DefaultBatchSize * BufferSizeMultiplier)
 
 	ring, err := uring.New(ringSize)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Printf("[UBatcher] Создан новый UBatcher с размером ring=%d, batchSize=%d", size, DefaultBatchSize)
 	return &UBatcher{
 		ring:        ring,
 		callbacks:   make(map[uint64]callback),
@@ -104,7 +103,6 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 	u.buffer.Put(&entry)
 
 	if len(u.buffer.elements) >= int(u.batchSize) { // redo this moment :D
-		log.Printf("[UBatcher] батч можно отправлять (%d), отправляем сигнал", len(u.buffer.elements))
 		u.batchSignal <- struct{}{}
 	}
 }
@@ -114,11 +112,9 @@ func (u *UBatcher) CQEventsHandlerRun() {
 	defer runtime.UnlockOSThread()
 	defer close(u.cqDone)
 
-	log.Printf("[UBatcher] Запущен обработчик CQE событий")
 	for {
 		// Проверяем сигнал остановки
 		if atomic.LoadInt64(&u.shutdown) == 1 {
-			log.Printf("[UBatcher] Получен сигнал остановки, завершаем обработчик CQE")
 			return
 		}
 
@@ -129,7 +125,6 @@ func (u *UBatcher) CQEventsHandlerRun() {
 		}
 
 		u.processCQE(cqe)
-		// Отмечаем событие как обработанное
 		u.ring.SeenCQE(cqe)
 	}
 }
@@ -142,7 +137,6 @@ func (u *UBatcher) processCQE(cqe *uring.CQEvent) {
 	err := cqe.Error()
 
 	if cb, exists := u.callbacks[cqe.UserData]; exists {
-		log.Printf("[UBatcher] Обработка CQE: userData=%d, result=%d, err=%v", cqe.UserData, result, err)
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -187,8 +181,10 @@ func handleBatch(u *UBatcher) {
 		u.addToUring(e.operation, e.cb)
 	}
 
-	submitted, err := u.ring.Submit()
-	log.Printf("[UBatcher] Отправлено %d операций в uring, err=%v", submitted, err)
+	_, err := u.ring.Submit()
+	if err != nil {
+		log.Printf("[UBatcher] Ошибка отправки операций в uring: %v", err)
+	}
 }
 
 func (u *UBatcher) SQEventsHandlerRun() {
@@ -196,20 +192,17 @@ func (u *UBatcher) SQEventsHandlerRun() {
 	defer runtime.UnlockOSThread()
 	defer close(u.sqDone)
 
-	log.Printf("[UBatcher] Запущен основной цикл батчинга с таймаутом %v", DefaultTimout)
 	timer := time.NewTimer(DefaultTimout)
 	defer timer.Stop()
 
 	for {
 		// Проверяем сигнал остановки
 		if atomic.LoadInt64(&u.shutdown) == 1 {
-			log.Printf("[UBatcher] Получен сигнал остановки, завершаем SQ handler")
 			return
 		}
 
 		select {
 		case <-u.batchSignal:
-			log.Printf("[UBatcher] Получен сигнал обработки батча")
 			handleBatch(u)
 			timer.Reset(DefaultTimout)
 

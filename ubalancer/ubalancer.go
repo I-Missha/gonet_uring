@@ -86,14 +86,11 @@ func (ub *UBalancer) Run() {
 		return
 	}
 
-	log.Printf("[UBalancer] Запуск всех батчеров")
 	for i, batcher := range ub.batchers {
 		log.Printf("[UBalancer] Запуск батчера %d", i)
 		batcher.Run()
 	}
 
-	// Запускаем горутину-монитор для автоматического завершения
-	go ub.monitor()
 }
 
 // Shutdown инициирует остановку всех батчеров.
