@@ -3,21 +3,29 @@ package main
 import (
 	"fmt"
 	"log"
-	"time"
 	"net" // Импортируем стандартный пакет net
+	"os"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
 
+var withSleep = false
 func echoHandler(ctx *fasthttp.RequestCtx) {
 	fmt.Printf("Received request from %s\n", ctx.RemoteAddr())
 	ctx.SetContentType("text/plain; charset=utf-8")
 	ctx.Write(ctx.RequestURI())
-	time.Sleep(time.Millisecond * 50)
+	if withSleep {
+		time.Sleep(time.Millisecond * 50)
+	}
 }
 
 func main() {
 	addr := "[::]:8543"
+	args := os.Args
+	if len(args) > 1 {
+		withSleep = true
+	}
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
