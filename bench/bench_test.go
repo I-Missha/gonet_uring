@@ -23,9 +23,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func BenchmarkClientGetEndToEnd1000TCP(b *testing.B) {
+func BenchmarkClientGetEndToEnd4000TCP(b *testing.B) {
 	b.Run("io_uring", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 4000, func(addr string) (net.Conn, error) {
 			dialer := mynet.NewUringDialer()
 			return dialer.DialContext(context.TODO(), "tcp", addr)
 		})
@@ -34,7 +34,7 @@ func BenchmarkClientGetEndToEnd1000TCP(b *testing.B) {
 	time.Sleep(time.Second * 20)
 
 	b.Run("net", func(b *testing.B) {
-		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
+		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 4000, func(addr string) (net.Conn, error) {
 			return net.Dial("tcp6", addr)
 		})
 	})
@@ -47,8 +47,9 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 	c := &fasthttp.Client{
 		// MaxConnsPerHost больше не играет роли для переиспользования,
 		// но все еще ограничивает количество одновременных запросов в полете.
-		MaxConnsPerHost: runtime.GOMAXPROCS(-1) * parallelism,
+		MaxConnsPerHost: runtime.GOMAXPROCS(-1) * parallelism * 8,
 		Dial:            dial,
+		MaxConnWaitTimeout: time.Second * 2,
 	}
 
 	requestURI := "/hello"
@@ -69,7 +70,7 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 		req.Header.Set("Connection", "close")
 
 		for pb.Next() {
-			for range 100 {
+			for range 1000 {
 				// Выполняем запрос с помощью c.Do
 				if err := c.Do(req, resp); err != nil {
 					b.Fatalf("unexpected error: %v", err)
