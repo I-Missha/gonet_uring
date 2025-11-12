@@ -21,20 +21,23 @@ func echoHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func main() {
-	addr := "[::]:8543"
 	args := os.Args
 	if len(args) > 1 {
 		withSleep = true
 	}
 
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("Failed to create listener: %s", err)
-	}
+	basePort := 8543
+	for i := 0; i < 1000; i++ {
+		addr := fmt.Sprintf("[::]:%d", basePort+i)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Fatalf("Failed to create listener: %s", err)
+		}
 
-	fmt.Printf("Starting dual-stack echo server on %s\n", ln.Addr().String())
+		fmt.Printf("Starting dual-stack echo server on %s\n", ln.Addr().String())
 
-	if err := fasthttp.Serve(ln, echoHandler); err != nil {
-		log.Fatalf("Error in fasthttp.Serve: %s", err)
+		if err := fasthttp.Serve(ln, echoHandler); err != nil {
+			log.Fatalf("Error in fasthttp.Serve: %s", err)
+		}
 	}
 }
