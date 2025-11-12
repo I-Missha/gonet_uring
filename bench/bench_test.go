@@ -12,6 +12,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+
 type benchCfg struct {
 	metriscUrl string
 }
@@ -23,9 +24,9 @@ func TestMain(m *testing.M) {
 }
 
 func BenchmarkClientGetEndToEnd1000TCP(b *testing.B) {
-	dialer := mynet.NewUringDialer()
 	b.Run("io_uring", func(b *testing.B) {
 		benchmarkClientGetEndToEndTCPNoKeepAlive(b, 1000, func(addr string) (net.Conn, error) {
+			dialer := mynet.NewUringDialer()
 			return dialer.DialContext(context.TODO(), "tcp", addr)
 		})
 	})
@@ -52,7 +53,7 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 
 	requestURI := "/hello"
 	url := "http://" + addr + requestURI
-	b.SetParallelism(parallelism)
+	b.SetParallelism(parallelism * runtime.GOMAXPROCS(-1))
 
 	b.ResetTimer()
 
@@ -68,22 +69,24 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 		req.Header.Set("Connection", "close")
 
 		for pb.Next() {
-			// Выполняем запрос с помощью c.Do
-			if err := c.Do(req, resp); err != nil {
-				b.Fatalf("unexpected error: %v", err)
-			}
+			for range 100 {
+				// Выполняем запрос с помощью c.Do
+				if err := c.Do(req, resp); err != nil {
+					b.Fatalf("unexpected error: %v", err)
+				}
 
-			statusCode := resp.StatusCode()
-			body := resp.Body()
+				statusCode := resp.StatusCode()
+				body := resp.Body()
 
-			if statusCode != fasthttp.StatusOK {
-				b.Fatalf("unexpected status code: %d. Expecting %d", statusCode, fasthttp.StatusOK)
-			}
-			if string(body) != requestURI {
-				b.Fatalf("unexpected response %q. Expecting %q", body, requestURI)
-			}
+				if statusCode != fasthttp.StatusOK {
+					b.Fatalf("unexpected status code: %d. Expecting %d", statusCode, fasthttp.StatusOK)
+				}
+				if string(body) != requestURI {
+					b.Fatalf("unexpected response %q. Expecting %q", body, requestURI)
+				}
 
-			resp.ResetBody()
+				resp.ResetBody()
+			}
 		}
 	})
 
