@@ -61,11 +61,12 @@ func benchmarkClientGetEndToEndTCPNoKeepAlive(b *testing.B, parallelism int, dia
 		// но все еще ограничивает количество одновременных запросов в полете.
 		MaxConnsPerHost: runtime.GOMAXPROCS(-1) * parallelism,
 		Dial:            dial,
+		MaxConnWaitTimeout: time.Second * 2,
 	}
 
 	requestURI := "/hello"
 	url := "http://" + addr + requestURI
-	b.SetParallelism(parallelism * runtime.GOMAXPROCS(-1))
+	b.SetParallelism(parallelism)
 
 	b.ResetTimer()
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 	"net" // Импортируем стандартный пакет net
 
 	"github.com/valyala/fasthttp"
@@ -12,6 +13,7 @@ func echoHandler(ctx *fasthttp.RequestCtx) {
 	fmt.Printf("Received request from %s\n", ctx.RemoteAddr())
 	ctx.SetContentType("text/plain; charset=utf-8")
 	ctx.Write(ctx.RequestURI())
+	time.Sleep(time.Millisecond * 50)
 }
 
 func main() {
