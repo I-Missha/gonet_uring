@@ -1,6 +1,7 @@
 package ubatcher
 
 import (
+	"fmt"
 	"log"
 	"math/rand/v2"
 	"runtime"
@@ -19,9 +20,8 @@ type callback func(result int32, err error)
 type UBatcher struct {
 	ring *uring.Ring
 
-	callbackMut sync.Mutex
-	callbacks   map[uint64]callback
-	nextID      uint64
+	callbacks sync.Map
+	nextID    uint64
 
 	buffer      *Buffer
 	batchSignal chan struct{}
@@ -37,8 +37,7 @@ const (
 	DefaultBatchSize = 16
 	DefaultTimout    = 10 * time.Millisecond // after this time we will submit the batch independent of the number of elements in the batch
 
-	BufferSizeMultiplier = 2
-	RingSizeMultiplier   = 10
+	BufferSizeMultiplier = 5
 )
 
 /*
@@ -49,19 +48,17 @@ idk about this
 todo: think
 */
 func NewUBatcher(size uint32) *UBatcher {
-	ringSize := size * RingSizeMultiplier
+	ringSize := 1024 * 16
 	bufferSize := uint32(DefaultBatchSize * BufferSizeMultiplier)
 
-	ring, err := uring.New(ringSize)
+	ring, err := uring.New(uint32(ringSize))
 	if err != nil {
 		panic(err)
 	}
 
 	return &UBatcher{
 		ring:        ring,
-		callbacks:   make(map[uint64]callback),
 		nextID:      rand.Uint64(),
-		callbackMut: sync.Mutex{},
 		buffer:      NewBuffer(bufferSize),
 		batchSignal: make(chan struct{}, 1),
 		batchSize:   DefaultBatchSize,
@@ -71,28 +68,22 @@ func NewUBatcher(size uint32) *UBatcher {
 }
 
 func (u *UBatcher) addToUring(operation uring.Operation, cb callback) {
-	u.callbackMut.Lock()
-	defer u.callbackMut.Unlock()
 
-	userData := u.nextID
-	u.nextID++
+	userData := atomic.AddUint64(&u.nextID, 1)
 	// shitty code :)
-	var err error
-	for range 4 {
-		u.callbacks[userData] = cb
+	err := fmt.Errorf("error")
+	for err != nil {
+		u.callbacks.Store(userData, cb)
 		err = u.ring.QueueSQE(operation, 0, userData) // note: NextSQE is used inside of QueueSQE, NextSQE returns only one error = ErrSQOverflow
 
-		if err == nil {
-			break
+		if err != nil {
+			runtime.Gosched()
 		}
 
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if err != nil {
-		panic(err)
 	}
 }
+
+var isWakeup int32 = 0
 
 func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 	entry := Entry{
@@ -103,7 +94,9 @@ func (u *UBatcher) PushOperaion(operation uring.Operation, cb callback) {
 	u.buffer.Put(&entry)
 
 	if len(u.buffer.elements) >= int(u.batchSize) { // redo this moment :D
-		u.batchSignal <- struct{}{}
+		if atomic.CompareAndSwapInt32(&isWakeup, 0, 1) {
+			u.batchSignal <- struct{}{}
+		}
 	}
 }
 
@@ -112,6 +105,8 @@ func (u *UBatcher) CQEventsHandlerRun() {
 	defer runtime.UnlockOSThread()
 	defer close(u.cqDone)
 
+	buff := make([]*uring.CQEvent, 100)
+
 	for {
 		// Проверяем сигнал остановки
 		if atomic.LoadInt64(&u.shutdown) == 1 {
@@ -119,36 +114,39 @@ func (u *UBatcher) CQEventsHandlerRun() {
 		}
 
 		// Ожидаем завершения операций с тайм-аутом
-		cqe, err := u.ring.WaitCQEventsWithTimeout(1, 500*time.Millisecond)
+		_, err := u.ring.WaitCQEventsWithTimeout(1, 1*time.Millisecond)
 		if err != nil {
 			continue
 		}
 
-		u.processCQE(cqe)
-		u.ring.SeenCQE(cqe)
+		u.processCQE(buff)
 	}
 }
 
-func (u *UBatcher) processCQE(cqe *uring.CQEvent) {
-	u.callbackMut.Lock()
-	defer u.callbackMut.Unlock()
+func (u *UBatcher) processCQE(buff []*uring.CQEvent) {
+	cqes := u.ring.PeekCQEventBatch(buff)
+	u.ring.AdvanceCQ(uint32(cqes))
 
-	result := cqe.Res
-	err := cqe.Error()
-
-	if cb, exists := u.callbacks[cqe.UserData]; exists {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("[UBatcher] Паника в колбеке userData=%d: %v", cqe.UserData, r)
-				}
+	for i := 0; i < cqes; i++ {
+		cqe := buff[i]
+		result := cqe.Res
+		err := cqe.Error()
+		if cb, exists := u.callbacks.LoadAndDelete(cqe.UserData); exists {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[UBatcher] Паника в колбеке userData=%d: %v", cqe.UserData, r)
+					}
+				}()
+				cb.(callback)(result, err)
 			}()
-			cb(result, err)
-		}()
-		delete(u.callbacks, cqe.UserData)
-	} else {
-		log.Printf("[UBatcher] Колбек не найден для userData=%d", cqe.UserData)
+		} else {
+			log.Printf("[UBatcher] Колбек не найден для userData=%d", cqe.UserData)
+		}
+
 	}
+
+	buff = buff[:0]
 }
 
 func (u *UBatcher) Shutdown() {
@@ -185,6 +183,7 @@ func handleBatch(u *UBatcher) {
 	if err != nil {
 		log.Printf("[UBatcher] Ошибка отправки операций в uring: %v", err)
 	}
+	atomic.StoreInt32(&isWakeup, 0)
 }
 
 func (u *UBatcher) SQEventsHandlerRun() {

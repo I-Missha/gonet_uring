@@ -1,7 +1,6 @@
 package ubatcher
 
 import (
-	"log"
 	"sync"
 )
 
@@ -11,7 +10,6 @@ type Buffer struct {
 }
 
 func NewBuffer(size uint32) *Buffer {
-	log.Printf("[Buffer] Создан новый буфер размером %d", size)
 	return &Buffer{
 		elements: make([]*Entry, 0, size),
 		mut: sync.Mutex{},

@@ -14,7 +14,6 @@ import (
 var withSleep = false
 
 func echoHandler(ctx *fasthttp.RequestCtx) {
-	fmt.Printf("Received request from %s\n", ctx.RemoteAddr())
 	ctx.SetContentType("text/plain; charset=utf-8")
 	ctx.Write(ctx.RequestURI())
 	if withSleep {

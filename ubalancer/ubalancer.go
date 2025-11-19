@@ -48,7 +48,6 @@ func NewUBalancer(numBatchers int, batchSize uint32) *UBalancer {
 		batchers[i] = ubatcher.NewUBatcher(batchSize)
 	}
 
-	log.Printf("[UBalancer] Создан балансировщик с %d батчерами", numBatchers)
 	return &UBalancer{
 		batchers:    batchers,
 		numBatchers: numBatchers,
@@ -86,8 +85,7 @@ func (ub *UBalancer) Run() {
 		return
 	}
 
-	for i, batcher := range ub.batchers {
-		log.Printf("[UBalancer] Запуск батчера %d", i)
+	for _, batcher := range ub.batchers {
 		batcher.Run()
 	}
 
@@ -115,11 +113,8 @@ func (ub *UBalancer) Shutdown() {
 
 // monitor отслеживает завершение всех батчеров и сигнализирует о завершении балансера
 func (ub *UBalancer) monitor() {
-	log.Printf("[UBalancer] Запущен монитор завершения")
-
 	// Ждем завершения всех батчеров
 	for i, batcher := range ub.batchers {
-		log.Printf("[UBalancer] Ожидание завершения батчера %d", i)
 		batcher.Wait()
 		log.Printf("[UBalancer] Батчер %d завершен", i)
 	}

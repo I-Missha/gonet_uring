@@ -25,7 +25,7 @@ var balancer *ubalancer.UBalancer
 
 func NewUringDialer() *UringDialer {
 	if balancer == nil {
-		balancer = ubalancer.NewUBalancer(8, 1024)
+		balancer = ubalancer.NewUBalancer(1, 75)
 		balancer.Run()
 	}
 
@@ -55,9 +55,14 @@ func (d *UringDialer) DialContext(ctx context.Context, network, address string) 
 		return nil, fmt.Errorf("failed to push socket operation: %w", err)
 	}
 
-	fd := <-socketChan
-	if fd < 0 {
-		return nil, fmt.Errorf("failed to create socket")
+	var fd int
+	select {
+	case <-ctx.Done():
+		return nil, ErrCanceled
+	case fd = <-socketChan:
+		if fd <= 0 {
+			return nil, fmt.Errorf("failed to create socket: %w", syscall.Errno(-fd))
+		}
 	}
 
 	resultChan := make(chan error, 1)

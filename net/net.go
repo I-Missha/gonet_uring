@@ -1,6 +1,7 @@
 package net
 
 import (
+	"context"
 	gonet "net"
 	"sync"
 	"syscall"
@@ -16,6 +17,11 @@ type Conn struct {
 	balancer *ubalancer.UBalancer
 	wCount   int
 	rCount   int
+
+	// TODO: for the future me :)
+	ReadTimout  time.Duration
+	WriteTimout time.Duration
+	ctx         context.Context
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
@@ -24,7 +30,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 		bytes int32
 		err   error
 	}, 1)
-	
+
 	err = c.balancer.PushOperation(readOp, func(result int32, err error) {
 		resultChan <- struct {
 			bytes int32
@@ -36,11 +42,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 		return 0, err
 	}
 
-	result := <-resultChan
+	var result struct {
+		bytes int32
+		err   error
+	}
+	result = <-resultChan
 	if result.err != nil {
 		return 0, result.err
 	}
-	
+
 	c.rCount += int(result.bytes)
 	return int(result.bytes), nil
 }
@@ -51,7 +61,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		bytes int32
 		err   error
 	}, 1)
-	
+
 	err = c.balancer.PushOperation(writeOp, func(result int32, err error) {
 		resultChan <- struct {
 			bytes int32
@@ -63,11 +73,15 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		return 0, err
 	}
 
-	result := <-resultChan
+	var result struct {
+		bytes int32
+		err   error
+	}
+	result = <-resultChan
 	if result.err != nil {
 		return 0, result.err
 	}
-	
+
 	c.wCount += int(result.bytes)
 	return int(result.bytes), nil
 }
@@ -75,7 +89,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 func (c *Conn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.fd >= 0 {
+	if c.fd >= 0 { // zero ??
 		err := syscall.Close(c.fd)
 		c.fd = -1
 		return err
